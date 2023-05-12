@@ -1,9 +1,22 @@
 import streamlit as st
-import streamlit.proto.openmetrics_data_model_pb2
+import chromadb
 from langchain.chains import ConversationChain
 from langchain.chains.conversation.memory import ConversationEntityMemory
 from langchain.chains.conversation.prompt import ENTITY_MEMORY_CONVERSATION_TEMPLATE
-from langchain.llms import OpenAI
+from langchain.chat_models import ChatOpenAI
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.vectorstores import Chroma
+from langchain.memory import VectorStoreRetrieverMemory
+from decouple import Config, RepositoryEnv
+
+env = Config(RepositoryEnv('.env'))
+api_key = env.get('OPENAI_API_KEY')
+
+# embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+# vectorstore = Chroma(embedding_function=embeddings)
+# retriever = vectorstore.as_retriever(search_kwargs=dict(k=1))
+# memory = VectorStoreRetrieverMemory(retriever=retriever)
+
 
 if 'generated' not in st.session_state:
     st.session_state['generated'] = []
@@ -27,41 +40,34 @@ def new_chat():
     for i in range(len(st.session_state['generated']) - 1, -1, -1):
         save.append('User:' + st.session_state['past'][i])
         save.append('Bot:' + st.session_state['generated'][i])
+        # memory.save_context({'input': st.session_state['past'][i]}, {'output': st.session_state['generated'][i]})
     st.session_state['stored_session'].append(save)
     st.session_state['generated'] = []
     st.session_state['past'] = []
     st.session_state['input'] = ""
-    st.session_state.entity_memory.store = {}
+    st.session_state.entity_memory.entity_store = {}
     st.session_state.entity_memory.buffer.clear()
 
 
 st.title("AI assistant")
+st.button('New chat', on_click=new_chat)
 
-api = st.sidebar.text_input('API-key', type='password')
 
-st.sidebar.button('New chat', on_click=new_chat, type='primary')
+llm = ChatOpenAI(
+    temperature=0,
+    openai_api_key=api_key,
+    model_name='gpt-3.5-turbo'
+)
 
-if api:
+if 'entity_memory' not in st.session_state:
+    st.session_state.entity_memory = ConversationEntityMemory(llm=llm, k=100)
 
-    # Create OpenAI instance
-    llm = OpenAI(
-        temperature=0,
-        openai_api_key=api,
-        model_name='gpt-3.5-turbo'
-    ) # Large Language Model
 
-    # Create conv memory
-    if 'entity_memory' not in st.session_state:
-        st.session_state.entity_memory = ConversationEntityMemory(llm=llm, k=10) # k is amount of inputs we want
-                                                                                    # to remember
-    # Create conv chain
-    Conversation = ConversationChain(
+Conversation = ConversationChain(
         llm=llm,
         prompt=ENTITY_MEMORY_CONVERSATION_TEMPLATE,
         memory=st.session_state.entity_memory
     )
-else:
-    st.error('No API found.')
 
 user_input = get_text()
 
@@ -72,5 +78,5 @@ if user_input:
 
 with st.expander("Conversation"):
     for i in range(len(st.session_state['generated'])-1, -1, -1):
-        st.info(st.session_state['past'][i])
         st.success(st.session_state['generated'][i])
+        st.info(st.session_state['past'][i])
